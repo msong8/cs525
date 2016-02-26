@@ -300,18 +300,97 @@ RC pinPage (BM_BufferPool *const bm, BM_PageHandle *const page,
 }
 
 // Statistics Interface
+/************************************************************************
+Function Name: getFrameContents
+Description:
+	Retrieves the FrameContents of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->FrameContents
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 PageNumber *getFrameContents (BM_BufferPool *const bm){
 	return bm->mgmtData->FrameContents;
 }
+
+/************************************************************************
+Function Name: getDirtyFlags
+Description:
+	Retrieves the DirtyFlags of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->DirtyFlags
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 bool *getDirtyFlags (BM_BufferPool *const bm){
 	return bm->mgmtData->DirtyFlags;
 }
+
+/************************************************************************
+Function Name: getFixCounts
+Description:
+	Retrieves the FixCounts of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->FixCounts
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int *getFixCounts (BM_BufferPool *const bm){
 	return bm->mgmtData->FixCounts;
 }
+
+/************************************************************************
+Function Name: getNumReadIO
+Description:
+	Retrieves the NumReadIO of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->NumReadIO
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int getNumReadIO (BM_BufferPool *const bm){
 	return bm->mgmtData->NumReadIO;
 }
+
+/************************************************************************
+Function Name: getNumWriteIO
+Description:
+	Retrieves the NumWriteIO of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->NumWriteIO
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int getNumWriteIO (BM_BufferPool *const bm){
 	return bm->mgmtData->NumWriteIO;
 }
