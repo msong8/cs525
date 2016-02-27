@@ -11,20 +11,12 @@
 
 
 
-typedef struct BM_BufferPool {
-	char *pageFile;
-	int numPages;
-	ReplacementStrategy strategy;
-	void *mgmtData;
-} BM_BufferPool;
-
-
-
-typedef struct BM_PageHandle {
-	PageNumber pageNum;
-	char *data;
-} BM_PageHandle;
-
+typedef struct Bookkeeping4Swap {
+	int pool_index; /* the position of the page frame in the pool */
+	int page_index; /* the position of the page in the page file */
+	struct Bookkeeping4Swap * next;
+	struct Bookkeeping4Swap * prev;
+}Bookkeeping4Swap;
 
 typedef struct BP_mgmt {
 	int * FrameContents; // the pointer that points to the array of PageNumbers
@@ -40,30 +32,23 @@ typedef struct BP_mgmt {
 
 
 
-typedef struct Bookkeeping4Swap {
-	int pool_index; /* the position of the page frame in the pool */
-	int page_index; /* the position of the page in the page file */
-	struct Bookkeeping4Swap * next;
-	struct Bookkeeping4Swap * prev;
-}Bookkeeping4Swap;
-
 
 
 
 
 
 #define MAKE_BP_mgmt() \
-((BP_mgmt *)malloc (sizeof(BP_mgmt)))
+	((BP_mgmt *)malloc (sizeof(BP_mgmt)))
 #define MAKE_Bookkeeping4swap() \
-((Bookkeeping4Swap *)malloc (sizeof(Bookkeeping4Swap)))
+	((Bookkeeping4Swap *)malloc (sizeof(Bookkeeping4Swap)))
 #define head(bm) \
-(bm->mgmtData->HEAD)
+	(((BP_mgmt *)bm->mgmtData)->HEAD)
 #define tail(bm) \
-(bm->mgmtData->TAIL)
+	(((BP_mgmt *)bm->mgmtData)->TAIL)
 
 
 
-void init_BP_mgmt (BP_mgmt * mgmtData, int pool_size){
+void init_BP_mgmt (BP_mgmt *mgmtData, int pool_size){
 	mgmtData->FrameContents = (int *)malloc(pool_size*sizeof(int));
 	mgmtData->DirtyFlags = (bool *)malloc (pool_size*sizeof(bool));
 	mgmtData->FixCounts = (int *)malloc(pool_size*sizeof(int));
@@ -73,10 +58,11 @@ void init_BP_mgmt (BP_mgmt * mgmtData, int pool_size){
 	mgmtData->AvailablePool = pool_size;
 	mgmtData->HEAD = NULL;
 	mgmtData->TAIL = NULL;
-	for (int i=0; i< pool_size; i++){
+	int i;
+	for (i=0; i< pool_size; i++){
 		*(mgmtData->FrameContents + i) = NO_PAGE;
 		*(mgmtData->DirtyFlags + i) = false;
-		*(mgmtData->FixCounts) = 0;
+		*(mgmtData->FixCounts + i) = 0;
 	}
 }
 
@@ -84,12 +70,12 @@ void destroy_BP_mgmt(BP_mgmt * mgmtData){
 	free(mgmtData->FrameContents);
 	free(mgmtData->DirtyFlags);
 	free(mgmtData->FixCounts);
-	fee(msmgtData->PagePool);
+	free(mgmtData->PagePool);
 	mgmtData->FrameContents = NULL;
 	mgmtData->DirtyFlags = NULL;
 	mgmtData->FixCounts = NULL;
-	mgmtData->NumReadIO = NULL;
-	mgmtData->NumWriteIO = NULL;
+	mgmtData->NumReadIO = 0;
+	mgmtData->NumWriteIO = 0;
 	mgmtData->PagePool = NULL;
 	mgmtData->HEAD = NULL;
 	mgmtData->TAIL = NULL;
@@ -101,25 +87,27 @@ void insert_into_bookkeepinglist(int page_index, int pool_index, BM_BufferPool *
 	handle->page_index = page_index;
 	handle->pool_index = pool_index;
 	handle->next = NULL;
-	if(head(bm) == NULL){
+	if(((BP_mgmt *)bm->mgmtData)->HEAD == NULL){
 		head(bm) = handle;
 		tail(bm) = handle;
 		handle->prev = NULL;
+		handle->next = NULL;
 	} else {
 		tail(bm)->next = handle;
-		handle->prev = tail;
+		handle->prev = tail(bm);
 		tail(bm) = handle;
 	}
-	*(bm->mgmtData->FrameContents+pool_index) = page_index;
+	*(((BP_mgmt *)bm->mgmtData)->FrameContents+pool_index) = page_index;
 }
 
 RC check_in_cache(int page_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *current = NULL;
 	current = head(bm);
-	while (current->next!=NULL){
+	while (current!=NULL){
 		if (current->page_index == page_index){
 			return RC_OK;
 		}
+		current = current->next;
 	}
 	return RC_PAGE_NOT_FOUND_IN_CACHE;
 }
@@ -130,28 +118,29 @@ RC check_in_cache(int page_index, BM_BufferPool *const bm){
 int pageindex_mapto_poolindex(int page_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *current = NULL;
 	current = head(bm);
-	while (current->next!=NULL){
+	while (current!=NULL){
 		if (current->page_index == page_index){
 			return current->pool_index;
 		}
+		current = current->next;
 	}
+	return RC_PAGE_NOT_FOUND_IN_CACHE;
 }
 
 int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const bm, SM_FileHandle fHandle){
-
-	if (policy == RS_FIFO){
-		/* Check to see if the candidate page_frame has the fix_count =0 */
+	if (policy == RS_FIFO || policy == RS_LRU){
 		Bookkeeping4Swap * candidate = head(bm);
-		while (*(bm->mgmtData->FixCounts+candidate->pool_index)>0 && candicate != NULL){
+
+		while (candidate != NULL && *(((BP_mgmt *)bm->mgmtData)->FixCounts+candidate->pool_index)>0){
 			candidate = candidate->next;
 		}
-		if (candicate == NULL) {
+		if (candidate == NULL) {
 			return RC_ALL_PAGE_RESOURCE_OCCUPIED;
 		} else {
-			if(candicate != tail(bm)){
+			if(candidate != tail(bm)){
 				tail(bm)->next = candidate;
-				
-				candidate->next->prev = candicate->prev;
+
+				candidate->next->prev = candidate->prev;
 				if(candidate == head(bm)){
 					head(bm) = head(bm)->next;
 				} else {
@@ -161,19 +150,46 @@ int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const 
 				tail(bm) = tail(bm)->next;
 				tail(bm)->next = NULL;
 			}
-			if(*(bm->mgmtData->DirtyFlags+tail(bm)->pool_index)== true){
-				char * memory = bm->mgmtData->PagePool + tail(bm)->pool_index*PAGE_SIZE*sizeof(char);
+
+			if(*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+tail(bm)->pool_index)== true){
+				char * memory = ((BP_mgmt *)bm->mgmtData)->PagePool + tail(bm)->pool_index*PAGE_SIZE*sizeof(char);
 				int old_pageNum = tail(bm)->page_index;
-				writeBlock(old_pageNum, &fh, memory);
-				*(bm->mgmtData->DirtyFlags+tail(bm)->pool_index)= false; /* set dirty flag to false after flashing into disk */
-				bm->mgmtData->NumWriteIO++;
+				writeBlock(old_pageNum, &fHandle, memory);
+				*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+tail(bm)->pool_index)= false;
+				((BP_mgmt *)bm->mgmtData)->NumWriteIO++;
 			}
 			tail(bm)->page_index = pageNum;
-			*(bm->mgmtData->FrameContents+tail(bm)->pool_index) = pageNum;
+			*(((BP_mgmt *)bm->mgmtData)->FrameContents+tail(bm)->pool_index) = pageNum;
 			return tail(bm)->pool_index;
 		}
-	}
+	} 
+	return -1;
+}
 
+void adjustOrderInCacheByLRU(int page_index, BM_BufferPool *const bm){
+	Bookkeeping4Swap *current = NULL;
+	Bookkeeping4Swap *tail = NULL;
+	current = head(bm);
+	tail = tail(bm);
+	while (current!=NULL){
+		if (current->page_index == page_index){
+			break;
+		}
+		current = current->next;
+	}
+	if (current != tail){
+		tail(bm)->next = current;
+		current->next->prev = current->prev;
+		if(current == head(bm)){
+			head(bm) = head(bm)->next;
+		} else {
+			current->prev->next = current->next;
+		}
+		current->prev = tail(bm);				
+		tail(bm) = tail(bm)->next;
+		tail(bm)->next = NULL;	
+	}
+	
 }
 
 // Buffer Manager Interface Pool Handling
@@ -181,26 +197,25 @@ RC initBufferPool(BM_BufferPool *const bm, const char *const pageFileName,
 		const int numPages, ReplacementStrategy strategy, 
 		void *stratData)
 {
-/*assign values to BM_BufferPool structure.*/
+	/*assign values to BM_BufferPool structure.*/
 	bm->pageFile = (char *)pageFileName;
 	bm->numPages = numPages;
 	bm->strategy = strategy;
-	bm->mgmtData = stratData;
-	(BP_mgmt)bm->mgmtData = MAKE_BP_mgmt();
+	bm->mgmtData = MAKE_BP_mgmt();
 	init_BP_mgmt(bm->mgmtData,bm->numPages);
+	BP_mgmt *mgmtData = (BP_mgmt *)bm->mgmtData;
 	return RC_OK;
 }
 
 RC shutdownBufferPool(BM_BufferPool *const bm){
-	for (int i=0; i< bm->numPages; i++){
-		if (*(bm->mgmtData->FixCounts+i)> 0) {
-			
-			return RC_FAIL_SHUTDOWN_POOL;
-				
-		}
-    }
+	BP_mgmt *mgmtData = (BP_mgmt *)bm->mgmtData;
+	int i;
+	for (i=0; i< bm->numPages; i++){
+	  if (*(((BP_mgmt *)bm->mgmtData)->FixCounts+i)> 0) {
+	  	return RC_FAIL_SHUTDOWN_POOL;
+	  }
+	 }
 	forceFlushPool(bm);
-	destroy(bm->mgmtData);
 	free(bm->mgmtData);
 	bm->mgmtData = NULL;
 	return RC_OK;
@@ -209,33 +224,31 @@ RC shutdownBufferPool(BM_BufferPool *const bm){
 
 RC markDirty (BM_BufferPool *const bm, BM_PageHandle *const page){
 	int pool_index = pageindex_mapto_poolindex(page->pageNum, bm);
-	*(bm->mgmtData->DirtyFlags+pool_index) = true;
+	*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+pool_index) = true;
 	return RC_OK;
 }
 
 RC unpinPage (BM_BufferPool *const bm, BM_PageHandle *const page){
 	int pool_index = pageindex_mapto_poolindex(page->pageNum, bm);
-	*(bm->mgmtData->FixCounts+pool_index)--;
-	if (*(bm->mgmtData->FixCounts+pool_index)<0){
-		return RC_UNPIN_FAIL;
-	}
+	(*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index))--;
 	return RC_OK;
 
 }
+
 RC forcePage (BM_BufferPool *const bm, BM_PageHandle *const page){
 	/* open the page file in the disk first */
-	
+
 	int pageNum = page->pageNum;
 	int pool_index = pageindex_mapto_poolindex(pageNum,bm);
-	if (*(bm->mgmtData->FixCounts+pool_index)> 0){
+	if (*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index)> 0){
 		return RC_FAIL_FORCE_PAGE_DUETO_PIN_EXIT;
 	} else {
 		SM_FileHandle fh;
 		openPageFile (bm->pageFile, &fh);
 		char * memory = page->data;
 		writeBlock(pageNum, &fh, memory);
-		*(bm->mgmtData->DirtyFlags+pool_index)= false; /* set dirty flag to false after flashing into disk */
-		bm->mgmtData->NumWriteIO++;
+		*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+pool_index)= false; /* set dirty flag to false after flashing into disk */
+		((BP_mgmt *)bm->mgmtData)->NumWriteIO++;
 		closePageFile(&fh);	
 		return RC_OK;
 	}
@@ -247,13 +260,14 @@ RC forceFlushPool(BM_BufferPool *const bm){
 	char * memory;
 	int page_index;
 	openPageFile (bm->pageFile, &fh);
-	for (int i=0; i< bm->numPages; i++){
-		if (*(bm->mgmtData->DirtyFlags+i)== true) {
-			page_index = *(bm->mgmtData->FrameContents+i);
-			memory = bm->mgmtData->PagePool + i*PAGE_SIZE*sizeof(char);
+	int i;
+	for (i=0; i< bm->numPages; i++){
+		if (*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+i)== true) {
+			page_index = *(((BP_mgmt *)bm->mgmtData)->FrameContents+i);
+			memory = ((BP_mgmt *)bm->mgmtData)->PagePool + i*PAGE_SIZE*sizeof(char);
 			writeBlock(page_index, &fh, memory);
-			*(bm->mgmtData->DirtyFlags+page_index)= false; /* set dirty flag to false after flashing into disk */
-			bm->mgmtData->NumWriteIO++;			
+			*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+i)= false; /* set dirty flag to false after flashing into disk */
+			((BP_mgmt *)bm->mgmtData)->NumWriteIO++;			
 		}		
 	}
 	closePageFile(&fh);	
@@ -261,57 +275,58 @@ RC forceFlushPool(BM_BufferPool *const bm){
 }
 
 RC pinPage (BM_BufferPool *const bm, BM_PageHandle *const page, 
-	    const PageNumber pageNum){
-		
+		const PageNumber pageNum){
+
 	/* open the page file in the disk first */
 	SM_FileHandle fh;
 	openPageFile (bm->pageFile, &fh);
 	/* The request page_index is larger than the actual size of page file, this could cause segment false */
-	if (fh->totalNumPages < (pageNum+1)){
+	if (fh.totalNumPages < (pageNum+1)){
 		ensureCapacity(pageNum+1,&fh);
 	}
-	
 	page->pageNum = pageNum;
 	if (check_in_cache(pageNum,bm)==0){	
 		int pool_index = pageindex_mapto_poolindex(pageNum,bm);
-		*(bm->mgmtData->FixCounts+pool_index)++;
-		page->data = (bm->mgmtData->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
+		(*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index))++;
+		page->data = (((BP_mgmt *)bm->mgmtData)->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
+		if (bm->strategy == RS_LRU){
+			adjustOrderInCacheByLRU(pageNum,bm);
+		}
 		return RC_OK;
 	} else {
-		
-		if (bm->mgmtData->AvailablePool>0){
-			int pool_index = bm->numPages - bm->mgmtData->AvailablePool;
+		if (((BP_mgmt *)bm->mgmtData)->AvailablePool>0){
+			int pool_index = bm->numPages - ((BP_mgmt *)bm->mgmtData)->AvailablePool;
 			insert_into_bookkeepinglist(pageNum, pool_index ,bm);
-			bm->mgmtData->AvailablePool--;
-			*(bm->mgmtData->FixCounts+pool_index)++;
-			page->data = (bm->mgmtData->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
-			
-		} else {
-			/* It is time to swap out the old page from cache */
-			int pool_index = applyRSPolicy(bm->ReplacementStrategy,pageNum, bm, fh);
-			*(bm->mgmtData->FixCounts+pool_index)++;	
-			page->data = (bm->mgmtData->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
+			((BP_mgmt *)bm->mgmtData)->AvailablePool--;
+			(*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index))++;
+			page->data = (((BP_mgmt *)bm->mgmtData)->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
+
+		} else { 
+			int pool_index = applyRSPolicy(bm->strategy,pageNum, bm, fh);
+			(*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index))++;
+			page->data = (((BP_mgmt *)bm->mgmtData)->PagePool)+pool_index*PAGE_SIZE*sizeof(char);
+
 		}
-		writeBlock(page->pageNum, &fh, page->data);
-		bm->mgmtData->NumReadIO++;
+		((BP_mgmt *)bm->mgmtData)->NumReadIO++;
+		readBlock(page->pageNum, &fh, page->data);
 	}
 	closePageFile(&fh);		
-		
+	return RC_OK;
 }
 
 // Statistics Interface
 PageNumber *getFrameContents (BM_BufferPool *const bm){
-	return bm->mgmtData->FrameContents;
+	return ((BP_mgmt *)bm->mgmtData)->FrameContents;
 }
 bool *getDirtyFlags (BM_BufferPool *const bm){
-	return bm->mgmtData->DirtyFlags;
+	return ((BP_mgmt *)bm->mgmtData)->DirtyFlags;
 }
 int *getFixCounts (BM_BufferPool *const bm){
-	return bm->mgmtData->FixCounts;
+	return ((BP_mgmt *)bm->mgmtData)->FixCounts;
 }
 int getNumReadIO (BM_BufferPool *const bm){
-	return bm->mgmtData->NumReadIO;
+	return ((BP_mgmt *)bm->mgmtData)->NumReadIO;
 }
 int getNumWriteIO (BM_BufferPool *const bm){
-	return bm->mgmtData->NumWriteIO;
+	return ((BP_mgmt *)bm->mgmtData)->NumWriteIO;
 }
