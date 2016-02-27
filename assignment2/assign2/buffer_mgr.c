@@ -46,7 +46,22 @@ typedef struct BP_mgmt {
 #define tail(bm) \
 	(((BP_mgmt *)bm->mgmtData)->TAIL)
 
-
+/************************************************************************
+Function Name: init_BP_mgmt
+Description:
+	Initializes the variables of the BP_mgmt * mgmtData object with the 
+	passed in pool_size.
+Parameters:
+	BP_mgmt * mgmtData, int pool_size
+Return:
+	None/Void
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 
 void init_BP_mgmt (BP_mgmt *mgmtData, int pool_size){
 	mgmtData->FrameContents = (int *)malloc(pool_size*sizeof(int));
@@ -66,6 +81,22 @@ void init_BP_mgmt (BP_mgmt *mgmtData, int pool_size){
 	}
 }
 
+/************************************************************************
+Function Name: destroy_BP_mgmt
+Description:
+	Deallocates memory assigned to the BP_mgmt * mgmtData object and 
+	resets all other variables to NULL.
+Parameters:
+	BP_mgmt * mgmtData
+Return:
+	None/Void
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 void destroy_BP_mgmt(BP_mgmt * mgmtData){
 	free(mgmtData->FrameContents);
 	free(mgmtData->DirtyFlags);
@@ -81,6 +112,23 @@ void destroy_BP_mgmt(BP_mgmt * mgmtData){
 	mgmtData->TAIL = NULL;
 
 }
+
+/************************************************************************
+Function Name: insert_into_bookkeepinglist
+Description:
+	This function inserts a frame's page and pool index into the 
+	buffer pool's mgmtData linked list for internal tracking.
+Parameters:
+	int page_index, int pool_index, BM_BufferPool *const bm
+Return:
+	None/Void
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 
 void insert_into_bookkeepinglist(int page_index, int pool_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *handle = MAKE_Bookkeeping4swap();
@@ -100,6 +148,23 @@ void insert_into_bookkeepinglist(int page_index, int pool_index, BM_BufferPool *
 	*(((BP_mgmt *)bm->mgmtData)->FrameContents+pool_index) = page_index;
 }
 
+/************************************************************************
+Function Name: check_in_cache
+Description:
+	Checks the buffer pool's mgmtData linked list for the frame with the 
+	passed in page index.
+Parameters:
+	int page_index, BM_BufferPool *const bm
+Return:
+	Returns RC_OK if frame is found
+	Returns RC_PAGE_NOT_FOUND_IN_CACHE if frame is not found
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC check_in_cache(int page_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *current = NULL;
 	current = head(bm);
@@ -112,7 +177,23 @@ RC check_in_cache(int page_index, BM_BufferPool *const bm){
 	return RC_PAGE_NOT_FOUND_IN_CACHE;
 }
 
-
+/************************************************************************
+Function Name: pageindex_mapto_poolindex
+Description:
+	Iterates over the buffer pool's mgmtData linked list until a match 
+	is found with the passed in page_index and that object's pool index 
+	is returned.
+Parameters:
+	int page_index, BM_BufferPool *const bm
+Return:
+	current->pool_index
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 
 
 int pageindex_mapto_poolindex(int page_index, BM_BufferPool *const bm){
@@ -127,6 +208,22 @@ int pageindex_mapto_poolindex(int page_index, BM_BufferPool *const bm){
 	return RC_PAGE_NOT_FOUND_IN_CACHE;
 }
 
+/************************************************************************
+Function Name: applyRSPolicy
+Description:
+	Applies the replacement policy designated in the function parameters.
+Parameters:
+	ReplacementStrategy policy, int pageNum, BM_BufferPool *const bm, SM_FileHandle fHandle
+Return:
+	Returns tail(bm)->pool_index
+	Returns RC_ALL_PAGE_RESOURCE_OCCUPIED if candidate == null while iterating over list
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const bm, SM_FileHandle fHandle){
 	if (policy == RS_FIFO || policy == RS_LRU){
 		Bookkeeping4Swap * candidate = head(bm);
@@ -165,8 +262,22 @@ int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const 
 	} 
 	return -1;
 }
-
-void adjustOrderInCacheByLRU(int page_index, BM_BufferPool *const bm){
+/************************************************************************
+Function Name: adjustOrderInCacheByLRU
+Description:
+	Adjust the cache order by LRU 
+Parameters:
+	int page_index, BM_BufferPool *const bm
+Return:
+	RC_OK
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
+RC adjustOrderInCacheByLRU(int page_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *current = NULL;
 	Bookkeeping4Swap *tail = NULL;
 	current = head(bm);
@@ -192,7 +303,24 @@ void adjustOrderInCacheByLRU(int page_index, BM_BufferPool *const bm){
 	
 }
 
-// Buffer Manager Interface Pool Handling
+/************************************************************************
+Function Name: initBufferPool
+Description:
+	Intializes the BM_BufferPool object's member variables to the 
+	passed in values.
+Parameters:
+	BM_BufferPool *const bm, const char *const pageFileName, 
+	const int numPages, ReplacementStrategy strategy, 
+	void *stratData)
+Return:
+	RC_OK
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC initBufferPool(BM_BufferPool *const bm, const char *const pageFileName, 
 		const int numPages, ReplacementStrategy strategy, 
 		void *stratData)
@@ -206,7 +334,23 @@ RC initBufferPool(BM_BufferPool *const bm, const char *const pageFileName,
 	BP_mgmt *mgmtData = (BP_mgmt *)bm->mgmtData;
 	return RC_OK;
 }
-
+/************************************************************************
+Function Name: shutdownBufferPool
+Description:
+	Calls forceFlushPool and destroy functions on bm, deallocates 
+	memory from bm->mgmtData, and sets it to NULL.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	Returns RC_OK
+	Returns RC_FAIL_SHUTDOWN_POOL if bm->mgmtData->FixCounts+i> 0
+Author:
+	Miao Song
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Miao Song	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC shutdownBufferPool(BM_BufferPool *const bm){
 	BP_mgmt *mgmtData = (BP_mgmt *)bm->mgmtData;
 	int i;
@@ -221,13 +365,42 @@ RC shutdownBufferPool(BM_BufferPool *const bm){
 	return RC_OK;
 }
 
-
+/************************************************************************
+Function Name: markDirty
+Description:
+	Marks a frame as dirty by setting bm->mgmtData->DirtyFlags+pool_index to true
+Parameters:
+	BM_BufferPool *const bm, BM_PageHandle *const page
+Return:
+	Returns RC_OK
+Author:
+	Chris Dani
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Chris Dani	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC markDirty (BM_BufferPool *const bm, BM_PageHandle *const page){
 	int pool_index = pageindex_mapto_poolindex(page->pageNum, bm);
 	*(((BP_mgmt *)bm->mgmtData)->DirtyFlags+pool_index) = true;
 	return RC_OK;
 }
-
+/************************************************************************
+Function Name: unpinPage
+Description:
+	Unpins a frame from the buffer pool.
+Parameters:
+	BM_BufferPool *const bm, BM_PageHandle *const page
+Return:
+	Returns RC_OK
+	Returns RC_UNPIN_FAIL if bm->mgmtData->FixCounts+pool_index<0
+Author:
+	Chris Dani
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Chris Dani	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC unpinPage (BM_BufferPool *const bm, BM_PageHandle *const page){
 	int pool_index = pageindex_mapto_poolindex(page->pageNum, bm);
 	(*(((BP_mgmt *)bm->mgmtData)->FixCounts+pool_index))--;
@@ -235,6 +408,22 @@ RC unpinPage (BM_BufferPool *const bm, BM_PageHandle *const page){
 
 }
 
+/************************************************************************
+Function Name: forcePage
+Description:
+	Writes the current content of the page back to the page file on disk.
+Parameters:
+	BM_BufferPool *const bm, BM_PageHandle *const page
+Return:
+	Returns RC_OK
+	Returns RC_FAIL_FORCE_PAGE_DUETO_PIN_EXIT if bm->mgmtData->FixCounts+pool_index> 0)
+Author:
+	Nikhita Kataria
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Nikhita Kataria	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC forcePage (BM_BufferPool *const bm, BM_PageHandle *const page){
 	/* open the page file in the disk first */
 
@@ -253,7 +442,21 @@ RC forcePage (BM_BufferPool *const bm, BM_PageHandle *const page){
 		return RC_OK;
 	}
 }
-
+/************************************************************************
+Function Name: forceFlushPool
+Description:
+	Causes all dirty pages (with fix count 0) from the buffer pool to be written to disk.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	Returns RC_OK
+Author:
+	Nikhita Kataria
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Nikhita Kataria		Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC forceFlushPool(BM_BufferPool *const bm){
 	/* open the page file in the disk first */
 	SM_FileHandle fh;
@@ -274,6 +477,21 @@ RC forceFlushPool(BM_BufferPool *const bm){
 	return RC_OK;		
 }
 
+/************************************************************************
+Function Name: pinPage
+Description:
+	Pins a page from disk to the buffer pool.
+Parameters:
+	BM_BufferPool *const bm, BM_PageHandle *const page, const PageNumber pageNum
+Return:
+	Returns RC_OK
+Author:
+	Nikhita Kataria
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Nikhita Kataria	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 RC pinPage (BM_BufferPool *const bm, BM_PageHandle *const page, 
 		const PageNumber pageNum){
 
@@ -315,18 +533,94 @@ RC pinPage (BM_BufferPool *const bm, BM_PageHandle *const page,
 }
 
 // Statistics Interface
+/************************************************************************
+ Function Name: getFrameContents
+ Description:
+ 	Retrieves the FrameContents of the passed in BM_BufferPool object pointer.
+ Parameters:
+ 	BM_BufferPool *const bm
+ Return:
+ 	bm->mgmtData->FrameContents
+ Author:
+ 	Jon Yang
+ HISTORY:
+ 	Date		Name		Content
+ 	2016-02-24	Jon Yang	Written code
+ 	2016-02-25	Jon Yang	Added function header comment
+ ************************************************************************/
 PageNumber *getFrameContents (BM_BufferPool *const bm){
 	return ((BP_mgmt *)bm->mgmtData)->FrameContents;
 }
+
+/************************************************************************
+Function Name: getDirtyFlags
+Description:
+	Retrieves the DirtyFlags of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->DirtyFlags
+Author:
+	Jon Yang
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Jon Yang	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 bool *getDirtyFlags (BM_BufferPool *const bm){
 	return ((BP_mgmt *)bm->mgmtData)->DirtyFlags;
 }
+/************************************************************************
+Function Name: getFixCounts
+Description:
+	Retrieves the FixCounts of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->FixCounts
+Author:
+	Jon Yang
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Jon Yang	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int *getFixCounts (BM_BufferPool *const bm){
 	return ((BP_mgmt *)bm->mgmtData)->FixCounts;
 }
+/************************************************************************
+Function Name: getNumReadIO
+Description:
+	Retrieves the NumReadIO of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->NumReadIO
+Author:
+	Jon Yang
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Jon Yang	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int getNumReadIO (BM_BufferPool *const bm){
 	return ((BP_mgmt *)bm->mgmtData)->NumReadIO;
 }
+/************************************************************************
+Function Name: getNumWriteIO
+Description:
+	Retrieves the NumWriteIO of the passed in BM_BufferPool object pointer.
+Parameters:
+	BM_BufferPool *const bm
+Return:
+	bm->mgmtData->NumWriteIO
+Author:
+	Jon Yang
+HISTORY:
+	Date		Name		Content
+	2016-02-24	Jon Yang	Written code
+	2016-02-25	Jon Yang	Added function header comment
+************************************************************************/
 int getNumWriteIO (BM_BufferPool *const bm){
 	return ((BP_mgmt *)bm->mgmtData)->NumWriteIO;
 }
