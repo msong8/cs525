@@ -18,17 +18,21 @@ typedef struct Bookkeeping4Swap {
 	struct Bookkeeping4Swap * prev;
 }Bookkeeping4Swap;
 
+
 typedef struct BP_mgmt {
-	int * FrameContents; // the pointer that points to the array of PageNumbers
-	bool * DirtyFlags;
-	int * FixCounts;
-	int  NumReadIO;
-	int  NumWriteIO;
-	char * PagePool;  //pointer to point to the acutal page_frame in the memeory pool
-	int AvailablePool;
+	int * FrameContents; /* the pointer that points to the array of PageNumbers */
+	bool * DirtyFlags; /* the pointer that points to the array of DirtyFlags */
+	int * FixCounts;  /* the pointer that points to the array of FixCounts */
+	int  NumReadIO;  /* the number of ReadIO */
+	int  NumWriteIO; /* the number of WriteIO */
+	char * PagePool;  /* pointer to point to the acutal page_frame in the memeory pool*/
+	int *Flag4Clock;  /* pointer to point to flag array for clock memory swapping algorithm*/
+	int AvailablePool; /* the number of empty/availabe page frames left in the memory pool */
 	Bookkeeping4Swap *HEAD;
 	Bookkeeping4Swap *TAIL;
+	Bookkeeping4Swap *CURRENT_HANDLE;
 }BP_mgmt;
+
 
 
 
@@ -45,6 +49,8 @@ typedef struct BP_mgmt {
 	(((BP_mgmt *)bm->mgmtData)->HEAD)
 #define tail(bm) \
 	(((BP_mgmt *)bm->mgmtData)->TAIL)
+#define current(bm) \
+	(((BP_mgmt *)bm->mgmtData)->CURRENT_HANDLE)
 
 /************************************************************************
 Function Name: init_BP_mgmt
@@ -70,14 +76,17 @@ void init_BP_mgmt (BP_mgmt *mgmtData, int pool_size){
 	mgmtData->NumReadIO = 0;
 	mgmtData->NumWriteIO = 0;
 	mgmtData->PagePool = (char *)malloc(pool_size*PAGE_SIZE*sizeof(char));
+	mgmtData->Flag4Clock = (int *)malloc(pool_size*PAGE_SIZE*sizeof(int));
 	mgmtData->AvailablePool = pool_size;
 	mgmtData->HEAD = NULL;
 	mgmtData->TAIL = NULL;
+	mgmtData->CURRENT_HANDLE = NULL;
 	int i;
 	for (i=0; i< pool_size; i++){
 		*(mgmtData->FrameContents + i) = NO_PAGE;
 		*(mgmtData->DirtyFlags + i) = false;
 		*(mgmtData->FixCounts + i) = 0;
+		*(mgmtData->Flag4Clock + i) = 0;
 	}
 }
 
@@ -102,14 +111,17 @@ void destroy_BP_mgmt(BP_mgmt * mgmtData){
 	free(mgmtData->DirtyFlags);
 	free(mgmtData->FixCounts);
 	free(mgmtData->PagePool);
+	free(mgmtData->Flag4Clock);
 	mgmtData->FrameContents = NULL;
 	mgmtData->DirtyFlags = NULL;
 	mgmtData->FixCounts = NULL;
+	mgmtData->Flag4Clock = NULL;
 	mgmtData->NumReadIO = 0;
 	mgmtData->NumWriteIO = 0;
 	mgmtData->PagePool = NULL;
 	mgmtData->HEAD = NULL;
 	mgmtData->TAIL = NULL;
+	mgmtData->CURRENT_HANDLE = NULL;
 
 }
 
@@ -208,6 +220,9 @@ int pageindex_mapto_poolindex(int page_index, BM_BufferPool *const bm){
 	return RC_PAGE_NOT_FOUND_IN_CACHE;
 }
 
+
+
+
 /************************************************************************
 Function Name: applyRSPolicy
 Description:
@@ -223,6 +238,7 @@ HISTORY:
 	Date		Name		Content
 	2016-02-24	Miao Song	Written code
 	2016-02-25	Jon Yang	Added function header comment
+	2016-03-01	Miao Song	Added support of Clock replacement policy
 ************************************************************************/
 int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const bm, SM_FileHandle fHandle){
 	if (policy == RS_FIFO || policy == RS_LRU){
@@ -259,7 +275,31 @@ int applyRSPolicy(ReplacementStrategy policy, int pageNum, BM_BufferPool *const 
 			*(((BP_mgmt *)bm->mgmtData)->FrameContents+tail(bm)->pool_index) = pageNum;
 			return tail(bm)->pool_index;
 		}
-	} 
+	} else if (policy == RS_CLOCK){
+		Bookkeeping4Swap * candidate = NULL;
+		if (current(bm) == NULL){
+			current(bm) = head(bm);	
+		}
+		while (*(((BP_mgmt *)bm->mgmtData)->Flag4Clock+current(bm)->pool_index)== 1){
+			*(((BP_mgmt *)bm->mgmtData)->Flag4Clock+current(bm)->pool_index) = 0; /* reset the bit flag back to 0 */
+			if (current(bm) == tail(bm)){
+				current(bm) = head(bm); /* To mock as the circular buffer for clock algorithm */
+			} else {
+				current(bm) = current(bm)->next;
+			}	
+		}
+		current(bm)->page_index = pageNum; /* update the pageNum to the selected page frame */
+		*(((BP_mgmt *)bm->mgmtData)->FrameContents+current(bm)->pool_index) = pageNum;	
+		*(((BP_mgmt *)bm->mgmtData)->Flag4Clock+current(bm)->pool_index) = 1; /* set the bit to 1 since the new request page is referenced */
+		candidate = current(bm);
+		/* Increase the handle to point to the next candidate for the future round of swapping */
+		if (current(bm) == tail(bm)){
+				current(bm) = head(bm); /* To mock as the circular buffer for clock algorithm */
+			} else {
+				current(bm) = current(bm)->next;
+			}	
+		return candidate->pool_index;
+	}
 	return -1;
 }
 /************************************************************************
@@ -282,7 +322,7 @@ RC adjustOrderInCacheByLRU(int page_index, BM_BufferPool *const bm){
 	Bookkeeping4Swap *tail = NULL;
 	current = head(bm);
 	tail = tail(bm);
-	while (current!=NULL){
+	while (current != NULL){
 		if (current->page_index == page_index){
 			break;
 		}
@@ -360,6 +400,7 @@ RC shutdownBufferPool(BM_BufferPool *const bm){
 	  }
 	 }
 	forceFlushPool(bm);
+	destroy_BP_mgmt(bm->mgmtData);
 	free(bm->mgmtData);
 	bm->mgmtData = NULL;
 	return RC_OK;
@@ -510,6 +551,7 @@ RC pinPage (BM_BufferPool *const bm, BM_PageHandle *const page,
 		if (bm->strategy == RS_LRU){
 			adjustOrderInCacheByLRU(pageNum,bm);
 		}
+		(*(((BP_mgmt *)bm->mgmtData)->Flag4Clock+pool_index)) = 1; /* Set flag =1 when a page is referenced for clock algorithm*/
 		return RC_OK;
 	} else {
 		if (((BP_mgmt *)bm->mgmtData)->AvailablePool>0){
